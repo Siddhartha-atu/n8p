@@ -1,4 +1,4 @@
-name: Deploy n8n Workflows with HTTPS
+name: Deploy n8n Workflows
 
 on:
   push:
@@ -17,14 +17,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 2: Build the Docker image for n8n (optional if you want to custom build n8n)
+      # Step 2: Build the Docker image for n8n
       - name: Build n8n Docker image
         run: |
           docker build -t n8n-app .
-
-      # Optional: You can add tests for your workflows here if needed
-      # - name: Run tests
-      #   run: docker run n8n-app some-test-script
 
   deploy:
     runs-on: ubuntu-latest
@@ -34,18 +30,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 4: SSH into your EC2 instance to deploy
-      - name: Deploy to EC2 instance (n8n with HTTPS)
-        env:
-          EC2_HOST: 52.215.250.161  # Replace with your EC2 instance IP
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}  # Add the private SSH key in GitHub Secrets
+      # Step 4: Set up SSH access
+      - name: Set up SSH access
         run: |
-          # Set up SSH access
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          
-          # Connect to EC2 and install dependencies (Docker, Certbot, etc.)
+
+      # Step 5: Test SSH connection to EC2 (this will help debug SSH issues)
+      - name: Test SSH Connection to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$EC2_HOST "echo 'SSH Connection Successful!'"
+        env:
+          EC2_HOST: 52.215.250.161
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      # Step 6: Deploy to your server (n8n Docker container deployment)
+      - name: Deploy to EC2 instance (Docker)
+        run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$EC2_HOST << 'EOF'
             # Update system
             sudo apt update -y && sudo apt upgrade -y
@@ -82,3 +84,6 @@ jobs:
               -e N8N_SECURE_COOKIE=true \
               n8nio/n8n:latest
           EOF
+        env:
+          EC2_HOST: 52.215.250.161
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
