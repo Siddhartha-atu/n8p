@@ -1,4 +1,4 @@
-name: Deploy n8n Workflows
+name: Deploy n8n Workflows with HTTPS
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 2: Build the Docker image for n8n
+      # Step 2: Build the Docker image for n8n (optional if you want to custom build n8n)
       - name: Build n8n Docker image
         run: |
           docker build -t n8n-app .
@@ -34,34 +34,51 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 4: Set up SSH to access EC2 instance
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.5.3
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      # Step 5: SSH into EC2 instance and deploy n8n
-      - name: Deploy to EC2 instance (n8n Docker container)
+      # Step 4: SSH into your EC2 instance to deploy
+      - name: Deploy to EC2 instance (n8n with HTTPS)
+        env:
+          EC2_HOST: 52.215.250.161  # Replace with your EC2 instance IP
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}  # Add the private SSH key in GitHub Secrets
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@ec2-52-215-250-161.eu-west-1.compute.amazonaws.com << 'EOF'
-            # Update and install Docker if not already installed
-            sudo apt-get update -y
-            sudo apt-get install -y docker.io
+          # Set up SSH access
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Connect to EC2 and install dependencies (Docker, Certbot, etc.)
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$EC2_HOST << 'EOF'
+            # Update system
+            sudo apt update -y && sudo apt upgrade -y
 
-            # Start Docker service
-            sudo systemctl start docker
-            sudo systemctl enable docker
+            # Install Docker
+            sudo apt install -y docker.io docker-compose
 
-            # Pull the latest n8n image
+            # Install Certbot for SSL certificate (only if using Let's Encrypt)
+            sudo apt install -y certbot python3-certbot-docker
+
+            # Obtain SSL certificate (replace 'example.com' with your domain)
+            # If you don't have a domain, you can skip this and use self-signed certs
+            sudo certbot certonly --standalone -d example.com
+
+            # Set environment variables for n8n container (replace paths as necessary)
+            export N8N_SSL_CERT_PATH="/etc/letsencrypt/live/example.com/fullchain.pem"
+            export N8N_SSL_KEY_PATH="/etc/letsencrypt/live/example.com/privkey.pem"
+            export N8N_HOST="https://example.com"
+            export N8N_PORT=443
+            export N8N_PROTOCOL=https
+            export N8N_SECURE_COOKIE=true
+
+            # Pull the latest n8n image and start the container
             sudo docker pull n8nio/n8n:latest
-
-            # Stop and remove the existing n8n container if it exists
-            sudo docker stop n8n || true
-            sudo docker rm n8n || true
-
-            # Run the new n8n container
-            sudo docker run -d --name n8n -p 5678:5678 n8nio/n8n:latest
-
-            # Optional: Check running containers
-            sudo docker ps
+            sudo docker run -d \
+              --name n8n \
+              -p 443:443 \
+              -v ~/.n8n:/root/.n8n \
+              -e N8N_HOST=$N8N_HOST \
+              -e N8N_PORT=$N8N_PORT \
+              -e N8N_PROTOCOL=$N8N_PROTOCOL \
+              -e N8N_SSL_CERT_PATH=$N8N_SSL_CERT_PATH \
+              -e N8N_SSL_KEY_PATH=$N8N_SSL_KEY_PATH \
+              -e N8N_SECURE_COOKIE=true \
+              n8nio/n8n:latest
           EOF
