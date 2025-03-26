@@ -34,8 +34,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 4: Deploy to your server
-      - name: Deploy to n8n instance (Docker)
+      # Step 4: Set up SSH to access EC2 instance
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Step 5: SSH into EC2 instance and deploy n8n
+      - name: Deploy to EC2 instance (n8n Docker container)
         run: |
-          # Replace with your actual deployment logic, e.g. SSH into your server and pull the image
-          ssh user@your-server-ip "docker pull n8nio/n8n:latest && docker-compose down && docker-compose up -d"
+          ssh -o StrictHostKeyChecking=no ubuntu@ec2-52-215-250-161.eu-west-1.compute.amazonaws.com << 'EOF'
+            # Update and install Docker if not already installed
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io
+
+            # Start Docker service
+            sudo systemctl start docker
+            sudo systemctl enable docker
+
+            # Pull the latest n8n image
+            sudo docker pull n8nio/n8n:latest
+
+            # Stop and remove the existing n8n container if it exists
+            sudo docker stop n8n || true
+            sudo docker rm n8n || true
+
+            # Run the new n8n container
+            sudo docker run -d --name n8n -p 5678:5678 n8nio/n8n:latest
+
+            # Optional: Check running containers
+            sudo docker ps
+          EOF
